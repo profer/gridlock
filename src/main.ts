@@ -11,30 +11,46 @@ const renderer = new Renderer(canvas);
 
 let musicStarted = false;
 
-function ensureMusic(): void {
+function ensureMenuMusic(): void {
+  if (musicStarted) return;
   initAudio();
-  if (!musicStarted) {
+  if (game.state === GameState.MENU) {
+    startMenuMusic();
     musicStarted = true;
-    if (game.state === GameState.MENU) {
-      startMenuMusic();
-    }
   }
 }
 
+// Attempt autoplay immediately — will succeed if browser policy allows
+try {
+  ensureMenuMusic();
+} catch {
+  // Blocked by autoplay policy, will retry on first interaction
+}
+
+// Fallback: start on any user interaction
+function onFirstInteraction(): void {
+  ensureMenuMusic();
+  window.removeEventListener("touchstart", onFirstInteraction);
+  window.removeEventListener("mousedown", onFirstInteraction);
+  window.removeEventListener("keydown", onFirstInteraction);
+}
+window.addEventListener("touchstart", onFirstInteraction, { once: true });
+window.addEventListener("mousedown", onFirstInteraction, { once: true });
+window.addEventListener("keydown", onFirstInteraction, { once: true });
+
 function handleDirection(direction: Direction): void {
-  ensureMusic();
+  ensureMenuMusic();
   if (game.state === GameState.PLAYING) {
     game.handleInput(direction);
   }
 }
 
 function handleTap(): void {
-  ensureMusic();
+  ensureMenuMusic();
 
   if (game.state === GameState.MENU) {
     game.start();
   } else if (game.state === GameState.PLAYING) {
-    // Tap during gameplay activates bomb if available
     game.useBomb();
   } else if (game.state === GameState.GAME_OVER && game.gameOverTimer > 1.0) {
     game.start();
