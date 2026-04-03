@@ -3,6 +3,7 @@ import { Player } from "./Player";
 import { Spawner } from "./Spawner";
 import { CellState, Direction, GameState, GRID_SIZE, Particle, Position } from "./types";
 import * as Sound from "../audio/SoundEngine";
+import * as Music from "../audio/MusicEngine";
 
 const COMBO_WINDOW = 1.5; // seconds to keep combo alive
 const CRUSH_DURATION = 1.8; // how long the crush animation takes
@@ -62,6 +63,7 @@ export class Game {
     this.state = GameState.PLAYING;
 
     Sound.playGameStart();
+    Music.startGameplayMusic();
 
     // Spawn initial pickups
     for (let i = 0; i < 3; i++) {
@@ -162,6 +164,7 @@ export class Game {
     this.crushPhase = 0;
     this.playerCrushScale = 1;
 
+    Music.stopMusic();
     Sound.playCrush();
 
     // Heavy haptic
@@ -186,6 +189,12 @@ export class Game {
   update(dt: number): void {
     if (this.state === GameState.PLAYING) {
       this.totalTime += dt;
+
+      // Update music intensity based on grid fill percentage
+      const totalCells = GRID_SIZE * GRID_SIZE;
+      const wallCount = this.grid.getWallCount();
+      const fillRatio = wallCount / totalCells;
+      Music.setIntensity(fillRatio * 1.5); // ramps to 1.0 when ~67% full
 
       // Combo timer decay
       if (this.comboTimer > 0) {
@@ -290,6 +299,10 @@ export class Game {
 
     if (this.state === GameState.GAME_OVER) {
       this.gameOverTimer += dt;
+      // Fade menu music back in after a pause
+      if (this.gameOverTimer > 3.0 && this.gameOverTimer - dt <= 3.0) {
+        Music.startMenuMusic();
+      }
     }
 
     // Update wall animations

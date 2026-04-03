@@ -3,19 +3,33 @@ import { GameState, Direction } from "./game/types";
 import { Renderer } from "./render/Renderer";
 import { InputHandler } from "./input/InputHandler";
 import { initAudio } from "./audio/SoundEngine";
+import { startMenuMusic } from "./audio/MusicEngine";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const game = new Game();
 const renderer = new Renderer(canvas);
 
+let musicStarted = false;
+
+function ensureMusic(): void {
+  initAudio();
+  if (!musicStarted) {
+    musicStarted = true;
+    if (game.state === GameState.MENU) {
+      startMenuMusic();
+    }
+  }
+}
+
 function handleDirection(direction: Direction): void {
+  ensureMusic();
   if (game.state === GameState.PLAYING) {
     game.handleInput(direction);
   }
 }
 
 function handleTap(): void {
-  initAudio(); // Unlock audio context on first user interaction
+  ensureMusic();
 
   if (game.state === GameState.MENU) {
     game.start();
@@ -25,15 +39,6 @@ function handleTap(): void {
 }
 
 new InputHandler(handleDirection, handleTap);
-
-// Also init audio on first swipe
-let audioInitialized = false;
-window.addEventListener("touchstart", () => {
-  if (!audioInitialized) {
-    initAudio();
-    audioInitialized = true;
-  }
-}, { once: true });
 
 // Handle resize
 window.addEventListener("resize", () => renderer.resize());
