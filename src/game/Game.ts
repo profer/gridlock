@@ -99,16 +99,23 @@ export class Game {
     if (!result.moved) return;
 
     Sound.playMove();
-    this.vibrate(10);
+    this.vibrate(isSpeed ? [8, 5, 8, 5, 8] : 10);
 
-    // If speed moved 2 cells, check intermediate cell for pickup
-    if (result.intermediatePos) {
-      const midCell = this.grid.getCell(result.intermediatePos);
+    // Process intermediate cells (speed mode passes through them)
+    for (const pos of result.passedThrough) {
+      const midCell = this.grid.getCell(pos);
       if (midCell === CellState.PICKUP) {
-        this.collectPickup(result.intermediatePos);
+        this.collectPickup(pos);
       } else if (this.isPowerUp(midCell)) {
-        this.collectPowerUp(result.intermediatePos, midCell);
+        this.collectPowerUp(pos, midCell);
       }
+    }
+
+    // Process walls smashed during speed move
+    for (const pos of result.wallsSmashed) {
+      this.spawnWallClearParticles(pos);
+      Sound.playWallClear();
+      this.score += 5;
     }
 
     // Check landing cell
@@ -119,9 +126,9 @@ export class Game {
       this.collectPowerUp(this.player.pos, cell);
     }
 
-    // Check game over
-    if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyCollectible(this.player.pos)) {
-      // If player has a bomb, don't end yet — they can use it
+    // Check game over (speed can smash walls so use appropriate check)
+    const hasMove = isSpeed ? this.player.hasValidMoveSpeed(this.grid) : this.player.hasValidMove(this.grid);
+    if (!hasMove || !this.grid.canReachAnyCollectible(this.player.pos)) {
       if (!this.hasBomb) {
         this.triggerCrush();
       }
@@ -330,7 +337,8 @@ export class Game {
       }
 
       // Check game over after wall spawns
-      if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyCollectible(this.player.pos)) {
+      const canMove = this.speedTimer > 0 ? this.player.hasValidMoveSpeed(this.grid) : this.player.hasValidMove(this.grid);
+      if (!canMove || !this.grid.canReachAnyCollectible(this.player.pos)) {
         if (!this.hasBomb) {
           this.triggerCrush();
         }

@@ -17,7 +17,7 @@ export class Spawner {
     this.pickupTimer = 0;
     this.pickupInterval = 2.0;
     this.powerUpTimer = 0;
-    this.powerUpInterval = 12.0;
+    this.powerUpInterval = 6.0;
     this.frozen = false;
     this.freezeTimer = 0;
   }
@@ -28,7 +28,7 @@ export class Spawner {
     this.pickupTimer = 0;
     this.pickupInterval = 2.0;
     this.powerUpTimer = 0;
-    this.powerUpInterval = 12.0;
+    this.powerUpInterval = 6.0;
     this.frozen = false;
     this.freezeTimer = 0;
   }
