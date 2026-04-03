@@ -1,5 +1,5 @@
 import { Grid } from "./Grid";
-import { CellState, Direction, DIRECTION_DELTA, Position } from "./types";
+import { Direction, DIRECTION_DELTA, Position } from "./types";
 
 const MAX_TRAIL = 6;
 
@@ -23,25 +23,39 @@ export class Player {
     this.trail = [];
   }
 
-  move(direction: Direction, grid: Grid): boolean {
+  move(direction: Direction, grid: Grid, speed: boolean = false): { moved: boolean; intermediatePos: Position | null } {
     const delta = DIRECTION_DELTA[direction];
-    const newPos: Position = {
+    const step1: Position = {
       col: this.pos.col + delta.col,
       row: this.pos.row + delta.row,
     };
 
-    if (!grid.inBounds(newPos)) return false;
-
-    const cell = grid.getCell(newPos);
-    if (cell === CellState.WALL) return false;
+    if (!grid.inBounds(step1) || !grid.isWalkable(step1)) {
+      return { moved: false, intermediatePos: null };
+    }
 
     this.trail.unshift({ ...this.pos });
     if (this.trail.length > MAX_TRAIL) {
       this.trail.pop();
     }
 
-    this.pos = newPos;
-    return true;
+    if (speed) {
+      // Try to move 2 cells
+      const step2: Position = {
+        col: step1.col + delta.col,
+        row: step1.row + delta.row,
+      };
+
+      if (grid.inBounds(step2) && grid.isWalkable(step2)) {
+        // Move 2 cells — skip over step1
+        this.pos = step2;
+        return { moved: true, intermediatePos: step1 };
+      }
+    }
+
+    // Normal 1-cell move (or speed couldn't do 2)
+    this.pos = step1;
+    return { moved: true, intermediatePos: null };
   }
 
   hasValidMove(grid: Grid): boolean {
@@ -51,7 +65,7 @@ export class Player {
         col: this.pos.col + delta.col,
         row: this.pos.row + delta.row,
       };
-      if (grid.inBounds(newPos) && grid.getCell(newPos) !== CellState.WALL) {
+      if (grid.inBounds(newPos) && grid.isWalkable(newPos)) {
         return true;
       }
     }

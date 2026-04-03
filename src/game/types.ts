@@ -2,6 +2,9 @@ export enum CellState {
   EMPTY = 0,
   WALL = 1,
   PICKUP = 2,
+  POWERUP_BOMB = 3,
+  POWERUP_FREEZE = 4,
+  POWERUP_SPEED = 5,
 }
 
 export enum Direction {
@@ -16,6 +19,12 @@ export enum GameState {
   PLAYING = "playing",
   CRUSHING = "crushing",
   GAME_OVER = "game_over",
+}
+
+export enum PowerUpType {
+  BOMB = "bomb",
+  FREEZE = "freeze",
+  SPEED = "speed",
 }
 
 export interface Position {
@@ -57,4 +66,10 @@ export const COLORS = {
   text: "#eef0f2",
   textDim: "#8892a0",
   combo: "#06d6a0",
+  bomb: "#ff6b35",
+  bombGlow: "#ff9f1c",
+  freeze: "#48bfe3",
+  freezeGlow: "#90e0ef",
+  speed: "#f72585",
+  speedGlow: "#ff85a1",
 };

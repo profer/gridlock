@@ -117,6 +117,60 @@ export function playGameStart(): void {
   setTimeout(() => playTone(660, 0.15, "sine", 0.12), 160);
 }
 
+export function playPowerUpSpawn(): void {
+  playTone(523, 0.12, "sine", 0.08);
+  setTimeout(() => playTone(659, 0.12, "sine", 0.08), 60);
+  setTimeout(() => playTone(784, 0.15, "sine", 0.1), 120);
+}
+
+export function playBombCollect(): void {
+  playTone(200, 0.15, "square", 0.1);
+  setTimeout(() => playTone(300, 0.15, "square", 0.08), 80);
+}
+
+export function playBombUse(): void {
+  // Explosion: low thud + noise burst
+  const ac = getCtx();
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(150, ac.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(30, ac.currentTime + 0.3);
+  gain.gain.setValueAtTime(0.2, ac.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
+  osc.connect(gain);
+  gain.connect(ac.destination);
+  osc.start();
+  osc.stop(ac.currentTime + 0.4);
+
+  playNoise(0.25, 0.15);
+}
+
+export function playFreezeCollect(): void {
+  // Icy shimmer: high descending sine
+  playTone(1200, 0.2, "sine", 0.1);
+  setTimeout(() => playTone(900, 0.2, "sine", 0.08), 80);
+  setTimeout(() => playTone(1100, 0.25, "sine", 0.06), 160);
+}
+
+export function playFreezeEnd(): void {
+  playTone(400, 0.15, "sine", 0.06);
+  setTimeout(() => playTone(300, 0.2, "sine", 0.05), 80);
+}
+
+export function playSpeedCollect(): void {
+  // Quick ascending burst
+  playTone(440, 0.08, "sawtooth", 0.08);
+  setTimeout(() => playTone(660, 0.08, "sawtooth", 0.08), 40);
+  setTimeout(() => playTone(880, 0.08, "sawtooth", 0.08), 80);
+  setTimeout(() => playTone(1100, 0.12, "sawtooth", 0.1), 120);
+}
+
+export function playSpeedEnd(): void {
+  playTone(600, 0.1, "sawtooth", 0.06);
+  setTimeout(() => playTone(400, 0.15, "sawtooth", 0.05), 60);
+}
+
 export function initAudio(): void {
   // Call on first user interaction to unlock audio context
   getCtx();

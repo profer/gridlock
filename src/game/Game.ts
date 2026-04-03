@@ -5,8 +5,10 @@ import { CellState, Direction, GameState, GRID_SIZE, Particle, Position } from "
 import * as Sound from "../audio/SoundEngine";
 import * as Music from "../audio/MusicEngine";
 
-const COMBO_WINDOW = 1.5; // seconds to keep combo alive
-const CRUSH_DURATION = 1.8; // how long the crush animation takes
+const COMBO_WINDOW = 1.5;
+const CRUSH_DURATION = 1.8;
+const FREEZE_DURATION = 5.0;
+const SPEED_DURATION = 6.0;
 
 export class Game {
   grid: Grid;
@@ -19,12 +21,17 @@ export class Game {
   comboTimer: number;
   lastPickupTime: number;
   particles: Particle[];
-  wallAppearAnimations: Map<string, number>; // "col,row" -> animation progress 0-1
+  wallAppearAnimations: Map<string, number>;
   gameOverTimer: number;
   totalTime: number;
   crushTimer: number;
-  crushPhase: number; // 0-1 progress of crush animation
-  playerCrushScale: number; // player shrinks during crush
+  crushPhase: number;
+  playerCrushScale: number;
+
+  // Power-ups
+  hasBomb: boolean;
+  speedTimer: number;
+  bombFlashTimer: number; // for UI flash when bomb is collected
 
   constructor() {
     this.grid = new Grid();
@@ -43,6 +50,9 @@ export class Game {
     this.crushTimer = 0;
     this.crushPhase = 0;
     this.playerCrushScale = 1;
+    this.hasBomb = false;
+    this.speedTimer = 0;
+    this.bombFlashTimer = 0;
   }
 
   start(): void {
@@ -60,6 +70,9 @@ export class Game {
     this.crushTimer = 0;
     this.crushPhase = 0;
     this.playerCrushScale = 1;
+    this.hasBomb = false;
+    this.speedTimer = 0;
+    this.bombFlashTimer = 0;
     this.state = GameState.PLAYING;
 
     Sound.playGameStart();
@@ -80,31 +93,120 @@ export class Game {
   handleInput(direction: Direction): void {
     if (this.state !== GameState.PLAYING) return;
 
-    const moved = this.player.move(direction, this.grid);
+    const isSpeed = this.speedTimer > 0;
+    const result = this.player.move(direction, this.grid, isSpeed);
 
-    if (!moved) return;
+    if (!result.moved) return;
 
     Sound.playMove();
-
-    // Haptic: light tap on move
     this.vibrate(10);
 
-    // Check if player landed on pickup
+    // If speed moved 2 cells, check intermediate cell for pickup
+    if (result.intermediatePos) {
+      const midCell = this.grid.getCell(result.intermediatePos);
+      if (midCell === CellState.PICKUP) {
+        this.collectPickup(result.intermediatePos);
+      } else if (this.isPowerUp(midCell)) {
+        this.collectPowerUp(result.intermediatePos, midCell);
+      }
+    }
+
+    // Check landing cell
     const cell = this.grid.getCell(this.player.pos);
     if (cell === CellState.PICKUP) {
       this.collectPickup(this.player.pos);
+    } else if (this.isPowerUp(cell)) {
+      this.collectPowerUp(this.player.pos, cell);
     }
 
-    // Check game over: no moves or no reachable pickups
-    if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyPickup(this.player.pos)) {
-      this.triggerCrush();
+    // Check game over
+    if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyCollectible(this.player.pos)) {
+      // If player has a bomb, don't end yet — they can use it
+      if (!this.hasBomb) {
+        this.triggerCrush();
+      }
     }
+  }
+
+  useBomb(): void {
+    if (this.state !== GameState.PLAYING || !this.hasBomb) return;
+
+    this.hasBomb = false;
+    Sound.playBombUse();
+    this.vibrate([30, 20, 50, 20, 80]);
+
+    // Clear all walls in a 5x5 area around the player (2-cell radius)
+    let cleared = 0;
+    for (let dr = -2; dr <= 2; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        const pos: Position = { col: this.player.pos.col + dc, row: this.player.pos.row + dr };
+        if (this.grid.inBounds(pos) && this.grid.getCell(pos) === CellState.WALL) {
+          this.grid.setCell(pos, CellState.EMPTY);
+          this.spawnWallClearParticles(pos);
+          cleared++;
+        }
+      }
+    }
+
+    // Bonus points for walls cleared
+    if (cleared > 0) {
+      this.score += cleared * 5;
+    }
+
+    // Big explosion particles
+    for (let i = 0; i < 20; i++) {
+      const angle = (Math.PI * 2 * i) / 20;
+      const speed = 2 + Math.random() * 5;
+      this.particles.push({
+        x: this.player.pos.col + 0.5,
+        y: this.player.pos.row + 0.5,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.4 + Math.random() * 0.4,
+        maxLife: 0.8,
+        color: Math.random() > 0.5 ? "#ff6b35" : "#ff9f1c",
+        size: 0.1 + Math.random() * 0.1,
+      });
+    }
+  }
+
+  private isPowerUp(cell: CellState): boolean {
+    return cell === CellState.POWERUP_BOMB || cell === CellState.POWERUP_FREEZE || cell === CellState.POWERUP_SPEED;
+  }
+
+  private collectPowerUp(pos: Position, cell: CellState): void {
+    this.grid.setCell(pos, CellState.EMPTY);
+
+    switch (cell) {
+      case CellState.POWERUP_BOMB:
+        this.hasBomb = true;
+        this.bombFlashTimer = 1.0;
+        Sound.playBombCollect();
+        this.vibrate([20, 15, 30]);
+        this.spawnPowerUpParticles(pos, "#ff6b35");
+        break;
+
+      case CellState.POWERUP_FREEZE:
+        this.spawner.freeze(FREEZE_DURATION);
+        Sound.playFreezeCollect();
+        this.vibrate([15, 10, 15, 10, 25]);
+        this.spawnPowerUpParticles(pos, "#48bfe3");
+        break;
+
+      case CellState.POWERUP_SPEED:
+        this.speedTimer = SPEED_DURATION;
+        Sound.playSpeedCollect();
+        this.vibrate([10, 5, 10, 5, 10, 5, 20]);
+        this.spawnPowerUpParticles(pos, "#f72585");
+        break;
+    }
+
+    this.score += 15;
   }
 
   private collectPickup(pos: Position): void {
     this.grid.setCell(pos, CellState.EMPTY);
 
-    // Combo logic
     const now = this.totalTime;
     if (now - this.lastPickupTime < COMBO_WINDOW) {
       this.combo++;
@@ -117,21 +219,17 @@ export class Game {
     const points = 10 * this.combo;
     this.score += points;
 
-    // Sound
     Sound.playPickup(this.combo);
     if (this.combo >= 3) {
       Sound.playCombo(this.combo);
     }
 
-    // Spawn particles
     this.spawnPickupParticles(pos);
 
-    // Clear a wall on high combo
     if (this.combo >= 3) {
       this.clearRandomWall();
     }
 
-    // Haptic: satisfying buzz, stronger for combos
     if (this.combo >= 3) {
       this.vibrate([20, 15, 20, 15, 30]);
     } else if (this.combo >= 2) {
@@ -166,8 +264,6 @@ export class Game {
 
     Music.stopMusic();
     Sound.playCrush();
-
-    // Heavy haptic
     this.vibrate([40, 30, 60, 40, 100]);
   }
 
@@ -181,8 +277,6 @@ export class Game {
     }
 
     Sound.playGameOver();
-
-    // Final heavy haptic
     this.vibrate([80, 50, 120]);
   }
 
@@ -190,11 +284,30 @@ export class Game {
     if (this.state === GameState.PLAYING) {
       this.totalTime += dt;
 
-      // Update music intensity based on grid fill percentage
+      // Update music intensity
       const totalCells = GRID_SIZE * GRID_SIZE;
       const wallCount = this.grid.getWallCount();
       const fillRatio = wallCount / totalCells;
-      Music.setIntensity(fillRatio * 1.5); // ramps to 1.0 when ~67% full
+      Music.setIntensity(fillRatio * 1.5);
+
+      // Speed timer
+      if (this.speedTimer > 0) {
+        this.speedTimer -= dt;
+        if (this.speedTimer <= 0) {
+          this.speedTimer = 0;
+          Sound.playSpeedEnd();
+        }
+      }
+
+      // Bomb flash timer
+      if (this.bombFlashTimer > 0) {
+        this.bombFlashTimer -= dt;
+      }
+
+      // Freeze end sound
+      if (this.spawner.isFrozen && this.spawner.freezeTimeLeft <= dt && this.spawner.freezeTimeLeft > 0) {
+        Sound.playFreezeEnd();
+      }
 
       // Combo timer decay
       if (this.comboTimer > 0) {
@@ -207,15 +320,20 @@ export class Game {
       // Spawner
       const spawned = this.spawner.update(dt, this.grid, this.player.pos, this.score);
 
-      // Animate new walls
       for (const pos of spawned.wallsSpawned) {
         this.wallAppearAnimations.set(`${pos.col},${pos.row}`, 0);
         Sound.playWallSpawn();
       }
 
-      // Check game over after wall spawns: no moves or no reachable pickups
-      if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyPickup(this.player.pos)) {
-        this.triggerCrush();
+      if (spawned.powerUpSpawned) {
+        Sound.playPowerUpSpawn();
+      }
+
+      // Check game over after wall spawns
+      if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyCollectible(this.player.pos)) {
+        if (!this.hasBomb) {
+          this.triggerCrush();
+        }
       }
     }
 
@@ -223,20 +341,18 @@ export class Game {
       this.crushTimer += dt;
       this.crushPhase = Math.min(1, this.crushTimer / CRUSH_DURATION);
 
-      // Fill remaining empty cells with walls during crush
       if (this.crushPhase < 0.7) {
-        const fillRate = dt * 8; // cells per second
+        const fillRate = dt * 8;
         const cellsToFill = Math.random() < fillRate ? 1 : 0;
         for (let i = 0; i < cellsToFill; i++) {
           const empty = this.grid.getEmptyCells().filter(
             (p) => !(p.col === this.player.pos.col && p.row === this.player.pos.row)
           );
           if (empty.length > 0) {
-            // Pick the cell closest to the player for dramatic effect
             empty.sort((a, b) => {
               const distA = Math.abs(a.col - this.player.pos.col) + Math.abs(a.row - this.player.pos.row);
               const distB = Math.abs(b.col - this.player.pos.col) + Math.abs(b.row - this.player.pos.row);
-              return distB - distA; // farthest first, then close in
+              return distB - distA;
             });
             const idx = Math.min(Math.floor(Math.random() * 3), empty.length - 1);
             const pos = empty[idx];
@@ -246,12 +362,10 @@ export class Game {
         }
       }
 
-      // Player shrinks and shakes
       if (this.crushPhase > 0.5) {
         this.playerCrushScale = Math.max(0, 1 - (this.crushPhase - 0.5) * 2);
       }
 
-      // Spawn crush particles around player
       if (this.crushPhase > 0.3 && Math.random() < dt * 10) {
         const angle = Math.random() * Math.PI * 2;
         this.particles.push({
@@ -266,18 +380,14 @@ export class Game {
         });
       }
 
-      // Haptic pulses during crush
       if (this.crushPhase > 0.3 && this.crushPhase < 0.9 && Math.random() < dt * 4) {
         this.vibrate(20);
       }
 
-      // Transition to game over
       if (this.crushPhase >= 1) {
-        // Fill the player cell too
         this.grid.setCell(this.player.pos, CellState.WALL);
         this.wallAppearAnimations.set(`${this.player.pos.col},${this.player.pos.row}`, 0);
 
-        // Big burst of particles
         for (let i = 0; i < 16; i++) {
           const angle = (Math.PI * 2 * i) / 16;
           const speed = 3 + Math.random() * 4;
@@ -299,7 +409,6 @@ export class Game {
 
     if (this.state === GameState.GAME_OVER) {
       this.gameOverTimer += dt;
-      // Fade menu music back in after a pause
       if (this.gameOverTimer > 3.0 && this.gameOverTimer - dt <= 3.0) {
         Music.startMenuMusic();
       }
@@ -314,10 +423,7 @@ export class Game {
       }
     }
 
-    // Update particles
     this.updateParticles(dt);
-
-    // Smooth player visual
     this.player.updateVisual(dt);
   }
 
@@ -338,14 +444,23 @@ export class Game {
       const angle = (Math.PI * 2 * i) / 8;
       const speed = 2 + Math.random() * 3;
       this.particles.push({
-        x: pos.col + 0.5,
-        y: pos.row + 0.5,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 0.4 + Math.random() * 0.3,
-        maxLife: 0.7,
-        color: "#ffd166",
-        size: 0.08 + Math.random() * 0.06,
+        x: pos.col + 0.5, y: pos.row + 0.5,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        life: 0.4 + Math.random() * 0.3, maxLife: 0.7,
+        color: "#ffd166", size: 0.08 + Math.random() * 0.06,
+      });
+    }
+  }
+
+  private spawnPowerUpParticles(pos: Position, color: string): void {
+    for (let i = 0; i < 12; i++) {
+      const angle = (Math.PI * 2 * i) / 12;
+      const speed = 2.5 + Math.random() * 3;
+      this.particles.push({
+        x: pos.col + 0.5, y: pos.row + 0.5,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        life: 0.5 + Math.random() * 0.3, maxLife: 0.8,
+        color, size: 0.1 + Math.random() * 0.08,
       });
     }
   }
@@ -355,14 +470,10 @@ export class Game {
       const angle = (Math.PI * 2 * i) / 6;
       const speed = 1.5 + Math.random() * 2;
       this.particles.push({
-        x: pos.col + 0.5,
-        y: pos.row + 0.5,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 0.3 + Math.random() * 0.2,
-        maxLife: 0.5,
-        color: "#06d6a0",
-        size: 0.1,
+        x: pos.col + 0.5, y: pos.row + 0.5,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        life: 0.3 + Math.random() * 0.2, maxLife: 0.5,
+        color: "#06d6a0", size: 0.1,
       });
     }
   }

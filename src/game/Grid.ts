@@ -33,6 +33,11 @@ export class Grid {
     return this.getCell(pos) === CellState.EMPTY;
   }
 
+  isWalkable(pos: Position): boolean {
+    const cell = this.getCell(pos);
+    return cell !== CellState.WALL;
+  }
+
   getEmptyCells(): Position[] {
     const empty: Position[] = [];
     for (let row = 0; row < GRID_SIZE; row++) {
@@ -65,8 +70,33 @@ export class Grid {
     return count;
   }
 
-  canReachAnyPickup(from: Position): boolean {
-    if (this.getPickupCount() === 0) return true; // no pickups to reach, not stuck yet
+  hasPowerUp(): boolean {
+    for (let row = 0; row < GRID_SIZE; row++) {
+      for (let col = 0; col < GRID_SIZE; col++) {
+        const c = this.cells[row][col];
+        if (c === CellState.POWERUP_BOMB || c === CellState.POWERUP_FREEZE || c === CellState.POWERUP_SPEED) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  canReachAnyCollectible(from: Position): boolean {
+    // Check if player can reach any pickup or power-up
+    let hasCollectible = false;
+    for (let row = 0; row < GRID_SIZE; row++) {
+      for (let col = 0; col < GRID_SIZE; col++) {
+        const c = this.cells[row][col];
+        if (c === CellState.PICKUP || c === CellState.POWERUP_BOMB ||
+            c === CellState.POWERUP_FREEZE || c === CellState.POWERUP_SPEED) {
+          hasCollectible = true;
+          break;
+        }
+      }
+      if (hasCollectible) break;
+    }
+    if (!hasCollectible) return true; // nothing to collect, spawner will handle it
 
     const visited = Array.from({ length: GRID_SIZE }, () =>
       Array(GRID_SIZE).fill(false)
@@ -90,7 +120,11 @@ export class Grid {
         if (visited[next.row][next.col]) continue;
         if (this.cells[next.row][next.col] === CellState.WALL) continue;
 
-        if (this.cells[next.row][next.col] === CellState.PICKUP) return true;
+        const cell = this.cells[next.row][next.col];
+        if (cell === CellState.PICKUP || cell === CellState.POWERUP_BOMB ||
+            cell === CellState.POWERUP_FREEZE || cell === CellState.POWERUP_SPEED) {
+          return true;
+        }
 
         visited[next.row][next.col] = true;
         queue.push(next);

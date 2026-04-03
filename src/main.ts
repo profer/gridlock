@@ -33,6 +33,9 @@ function handleTap(): void {
 
   if (game.state === GameState.MENU) {
     game.start();
+  } else if (game.state === GameState.PLAYING) {
+    // Tap during gameplay activates bomb if available
+    game.useBomb();
   } else if (game.state === GameState.GAME_OVER && game.gameOverTimer > 1.0) {
     game.start();
   }
@@ -40,14 +43,12 @@ function handleTap(): void {
 
 new InputHandler(handleDirection, handleTap);
 
-// Handle resize
 window.addEventListener("resize", () => renderer.resize());
 
-// Game loop
 let lastTime = 0;
 
 function loop(timestamp: number): void {
-  const dt = Math.min((timestamp - lastTime) / 1000, 0.1); // cap at 100ms
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
   lastTime = timestamp;
 
   game.update(dt);
