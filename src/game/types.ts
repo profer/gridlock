@@ -43,6 +43,16 @@ export interface Particle {
   size: number;
 }
 
+export interface Shockwave {
+  x: number; // grid coords (center)
+  y: number;
+  radius: number; // current radius in grid cells
+  maxRadius: number;
+  speed: number; // cells per second
+  life: number;
+  color: string;
+}
+
 export const GRID_SIZE = 8;
 
 export const DIRECTION_DELTA: Record<Direction, Position> = {

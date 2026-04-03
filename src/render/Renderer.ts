@@ -95,12 +95,20 @@ export class Renderer {
     }
 
     this.renderParticles(game);
+    this.renderShockwaves(game);
 
     ctx.restore();
 
     this.renderHUD(game, w);
     this.renderPowerUpBar(game, w);
     this.renderScorePopups(ctx);
+
+    // Bomb flash — bright white flash that fades
+    if (game.screenShakeIntensity > 5) {
+      const flashAlpha = Math.min(0.5, (game.screenShakeIntensity - 5) / 15);
+      ctx.fillStyle = `rgba(255, 200, 150, ${flashAlpha})`;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     if (game.state === GameState.CRUSHING) {
       this.renderCrushOverlay(game, w, h);
@@ -112,12 +120,16 @@ export class Renderer {
   }
 
   private updateScreenShake(game: Game): void {
+    // Combine multiple shake sources
+    let intensity = game.screenShakeIntensity;
+
     if (game.state === GameState.CRUSHING) {
-      const intensity = game.crushPhase * 6;
-      this.screenShakeX = (Math.random() - 0.5) * intensity;
-      this.screenShakeY = (Math.random() - 0.5) * intensity;
+      intensity = Math.max(intensity, game.crushPhase * 6);
     } else if (game.state === GameState.GAME_OVER && game.gameOverTimer < 0.3) {
-      const intensity = (1 - game.gameOverTimer / 0.3) * 8;
+      intensity = Math.max(intensity, (1 - game.gameOverTimer / 0.3) * 8);
+    }
+
+    if (intensity > 0.1) {
       this.screenShakeX = (Math.random() - 0.5) * intensity;
       this.screenShakeY = (Math.random() - 0.5) * intensity;
     } else {
@@ -408,6 +420,46 @@ export class Renderer {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  private renderShockwaves(game: Game): void {
+    const ctx = this.ctx;
+    const cs = this.cellSize;
+
+    for (const s of game.shockwaves) {
+      const progress = 1 - s.life / 1.0; // 0 → 1
+      const alpha = Math.max(0, s.life) * 0.7;
+      const radius = s.radius * cs;
+      const cx = this.offsetX + s.x * cs;
+      const cy = this.offsetY + s.y * cs;
+
+      // Outer ring
+      ctx.strokeStyle = s.color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = Math.max(1, (1 - progress) * 6);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner glow ring
+      ctx.globalAlpha = alpha * 0.3;
+      ctx.lineWidth = Math.max(1, (1 - progress) * 15);
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Bright leading edge
+      if (progress < 0.5) {
+        ctx.globalAlpha = (0.5 - progress) * 1.4;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = 1;
+    }
   }
 
   private renderHUD(game: Game, w: number): void {

@@ -1,7 +1,7 @@
 import { Grid } from "./Grid";
 import { Player } from "./Player";
 import { Spawner } from "./Spawner";
-import { CellState, Direction, GameState, GRID_SIZE, Particle, Position } from "./types";
+import { CellState, Direction, GameState, GRID_SIZE, Particle, Position, Shockwave } from "./types";
 import * as Sound from "../audio/SoundEngine";
 import * as Music from "../audio/MusicEngine";
 
@@ -31,7 +31,9 @@ export class Game {
   // Power-ups
   hasBomb: boolean;
   speedTimer: number;
-  bombFlashTimer: number; // for UI flash when bomb is collected
+  bombFlashTimer: number;
+  shockwaves: Shockwave[];
+  screenShakeIntensity: number;
 
   constructor() {
     this.grid = new Grid();
@@ -53,6 +55,8 @@ export class Game {
     this.hasBomb = false;
     this.speedTimer = 0;
     this.bombFlashTimer = 0;
+    this.shockwaves = [];
+    this.screenShakeIntensity = 0;
   }
 
   start(): void {
@@ -73,6 +77,8 @@ export class Game {
     this.hasBomb = false;
     this.speedTimer = 0;
     this.bombFlashTimer = 0;
+    this.shockwaves = [];
+    this.screenShakeIntensity = 0;
     this.state = GameState.PLAYING;
 
     Sound.playGameStart();
@@ -111,10 +117,13 @@ export class Game {
       }
     }
 
-    // Process walls smashed during speed move
+    // Process walls smashed during speed move — dramatic break effect
+    if (result.wallsSmashed.length > 0) {
+      this.screenShakeIntensity = Math.min(10, result.wallsSmashed.length * 3);
+      Sound.playSpeedSmash();
+    }
     for (const pos of result.wallsSmashed) {
-      this.spawnWallClearParticles(pos);
-      Sound.playWallClear();
+      this.spawnWallBreakParticles(pos);
       this.score += 5;
     }
 
@@ -140,39 +149,82 @@ export class Game {
 
     this.hasBomb = false;
     Sound.playBombUse();
-    this.vibrate([30, 20, 50, 20, 80]);
+    this.vibrate([50, 30, 80, 40, 100, 30, 60]);
 
-    // Clear all walls in a 5x5 area around the player (2-cell radius)
+    // Massive screen shake
+    this.screenShakeIntensity = 15;
+
+    // Shockwave ring expanding from player
+    this.shockwaves.push({
+      x: this.player.pos.col + 0.5,
+      y: this.player.pos.row + 0.5,
+      radius: 0,
+      maxRadius: GRID_SIZE * 1.5,
+      speed: 12,
+      life: 1.0,
+      color: "#ff6b35",
+    });
+
+    // Second shockwave slightly delayed
+    setTimeout(() => {
+      this.shockwaves.push({
+        x: this.player.pos.col + 0.5,
+        y: this.player.pos.row + 0.5,
+        radius: 0,
+        maxRadius: GRID_SIZE * 1.2,
+        speed: 8,
+        life: 0.8,
+        color: "#ff9f1c",
+      });
+    }, 150);
+
+    // Clear ALL walls on the entire board
     let cleared = 0;
-    for (let dr = -2; dr <= 2; dr++) {
-      for (let dc = -2; dc <= 2; dc++) {
-        const pos: Position = { col: this.player.pos.col + dc, row: this.player.pos.row + dr };
-        if (this.grid.inBounds(pos) && this.grid.getCell(pos) === CellState.WALL) {
+    for (let row = 0; row < GRID_SIZE; row++) {
+      for (let col = 0; col < GRID_SIZE; col++) {
+        const pos: Position = { col, row };
+        if (this.grid.getCell(pos) === CellState.WALL) {
           this.grid.setCell(pos, CellState.EMPTY);
-          this.spawnWallClearParticles(pos);
+          // Stagger particle spawns by distance for ripple effect
+          const dist = Math.abs(col - this.player.pos.col) + Math.abs(row - this.player.pos.row);
+          setTimeout(() => this.spawnWallBreakParticles(pos), dist * 30);
           cleared++;
         }
       }
     }
 
-    // Bonus points for walls cleared
     if (cleared > 0) {
       this.score += cleared * 5;
     }
 
-    // Big explosion particles
-    for (let i = 0; i < 20; i++) {
-      const angle = (Math.PI * 2 * i) / 20;
-      const speed = 2 + Math.random() * 5;
+    // Central explosion burst — lots of particles
+    for (let i = 0; i < 30; i++) {
+      const angle = (Math.PI * 2 * i) / 30;
+      const speed = 3 + Math.random() * 7;
       this.particles.push({
         x: this.player.pos.col + 0.5,
         y: this.player.pos.row + 0.5,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        life: 0.4 + Math.random() * 0.4,
-        maxLife: 0.8,
-        color: Math.random() > 0.5 ? "#ff6b35" : "#ff9f1c",
-        size: 0.1 + Math.random() * 0.1,
+        life: 0.6 + Math.random() * 0.5,
+        maxLife: 1.1,
+        color: ["#ff6b35", "#ff9f1c", "#ffffff", "#ffd166"][Math.floor(Math.random() * 4)],
+        size: 0.1 + Math.random() * 0.15,
+      });
+    }
+
+    // Inner bright flash particles
+    for (let i = 0; i < 12; i++) {
+      const angle = (Math.PI * 2 * i) / 12;
+      this.particles.push({
+        x: this.player.pos.col + 0.5,
+        y: this.player.pos.row + 0.5,
+        vx: Math.cos(angle) * 1.5,
+        vy: Math.sin(angle) * 1.5,
+        life: 0.3,
+        maxLife: 0.3,
+        color: "#ffffff",
+        size: 0.2,
       });
     }
   }
@@ -432,6 +484,14 @@ export class Game {
     }
 
     this.updateParticles(dt);
+    this.updateShockwaves(dt);
+
+    // Decay screen shake
+    if (this.screenShakeIntensity > 0) {
+      this.screenShakeIntensity *= Math.pow(0.02, dt); // fast decay
+      if (this.screenShakeIntensity < 0.1) this.screenShakeIntensity = 0;
+    }
+
     this.player.updateVisual(dt);
   }
 
@@ -443,6 +503,17 @@ export class Game {
       p.life -= dt;
       if (p.life <= 0) {
         this.particles.splice(i, 1);
+      }
+    }
+  }
+
+  private updateShockwaves(dt: number): void {
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      const s = this.shockwaves[i];
+      s.radius += s.speed * dt;
+      s.life -= dt;
+      if (s.life <= 0 || s.radius > s.maxRadius) {
+        this.shockwaves.splice(i, 1);
       }
     }
   }
@@ -482,6 +553,25 @@ export class Game {
         vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
         life: 0.3 + Math.random() * 0.2, maxLife: 0.5,
         color: "#06d6a0", size: 0.1,
+      });
+    }
+  }
+
+  private spawnWallBreakParticles(pos: Position): void {
+    // Chunky debris particles — wall explodes into shards
+    const colors = ["#e94560", "#ff6b6b", "#ff8888", "#cc3344"];
+    for (let i = 0; i < 10; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 5;
+      this.particles.push({
+        x: pos.col + 0.2 + Math.random() * 0.6,
+        y: pos.row + 0.2 + Math.random() * 0.6,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.4 + Math.random() * 0.4,
+        maxLife: 0.8,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 0.06 + Math.random() * 0.1,
       });
     }
   }

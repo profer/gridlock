@@ -99,12 +99,12 @@ export class Spawner {
       this.powerUpTimer = 0;
       const pos = this.pickEmptyCell(grid, playerPos);
       if (pos) {
-        // Random power-up type, weighted
+        // Random power-up type, weighted — bombs more common
         const roll = Math.random();
         let type: CellState;
-        if (roll < 0.35) {
+        if (roll < 0.45) {
           type = CellState.POWERUP_BOMB;
-        } else if (roll < 0.65) {
+        } else if (roll < 0.72) {
           type = CellState.POWERUP_FREEZE;
         } else {
           type = CellState.POWERUP_SPEED;

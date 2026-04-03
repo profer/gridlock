@@ -129,21 +129,88 @@ export function playBombCollect(): void {
 }
 
 export function playBombUse(): void {
-  // Explosion: low thud + noise burst
+  // Seismic charge: brief silence → ascending whine → massive BOOM
+  const ac = getCtx();
+
+  // Phase 1: Sharp ascending whine (0 - 0.3s)
+  const whine = ac.createOscillator();
+  const whineGain = ac.createGain();
+  whine.type = "sine";
+  whine.frequency.setValueAtTime(200, ac.currentTime);
+  whine.frequency.exponentialRampToValueAtTime(2000, ac.currentTime + 0.25);
+  whineGain.gain.setValueAtTime(0.08, ac.currentTime);
+  whineGain.gain.exponentialRampToValueAtTime(0.15, ac.currentTime + 0.2);
+  whineGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.3);
+  whine.connect(whineGain);
+  whineGain.connect(ac.destination);
+  whine.start(ac.currentTime);
+  whine.stop(ac.currentTime + 0.35);
+
+  // Phase 2: The BOOM (0.25s) — deep bass drop + distortion
+  const boomTime = ac.currentTime + 0.25;
+
+  // Sub bass
+  const boom = ac.createOscillator();
+  const boomGain = ac.createGain();
+  boom.type = "sine";
+  boom.frequency.setValueAtTime(80, boomTime);
+  boom.frequency.exponentialRampToValueAtTime(20, boomTime + 0.8);
+  boomGain.gain.setValueAtTime(0.3, boomTime);
+  boomGain.gain.exponentialRampToValueAtTime(0.001, boomTime + 1.0);
+  boom.connect(boomGain);
+  boomGain.connect(ac.destination);
+  boom.start(boomTime);
+  boom.stop(boomTime + 1.1);
+
+  // Mid crunch layer
+  const crunch = ac.createOscillator();
+  const crunchGain = ac.createGain();
+  crunch.type = "sawtooth";
+  crunch.frequency.setValueAtTime(150, boomTime);
+  crunch.frequency.exponentialRampToValueAtTime(30, boomTime + 0.5);
+  crunchGain.gain.setValueAtTime(0.12, boomTime);
+  crunchGain.gain.exponentialRampToValueAtTime(0.001, boomTime + 0.6);
+  crunch.connect(crunchGain);
+  crunchGain.connect(ac.destination);
+  crunch.start(boomTime);
+  crunch.stop(boomTime + 0.7);
+
+  // Noise burst (debris/shrapnel)
+  setTimeout(() => playNoise(0.5, 0.2), 250);
+
+  // Reverb tail — descending echo pings
+  for (let i = 1; i <= 3; i++) {
+    const delay = 0.25 + i * 0.15;
+    const vol = 0.08 / i;
+    const echoOsc = ac.createOscillator();
+    const echoGain = ac.createGain();
+    echoOsc.type = "sine";
+    echoOsc.frequency.setValueAtTime(60 / i, ac.currentTime + delay);
+    echoOsc.frequency.exponentialRampToValueAtTime(15, ac.currentTime + delay + 0.4);
+    echoGain.gain.setValueAtTime(vol, ac.currentTime + delay);
+    echoGain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + delay + 0.5);
+    echoOsc.connect(echoGain);
+    echoGain.connect(ac.destination);
+    echoOsc.start(ac.currentTime + delay);
+    echoOsc.stop(ac.currentTime + delay + 0.6);
+  }
+}
+
+export function playSpeedSmash(): void {
+  // Punchy wall break
   const ac = getCtx();
   const osc = ac.createOscillator();
   const gain = ac.createGain();
-  osc.type = "sine";
-  osc.frequency.setValueAtTime(150, ac.currentTime);
-  osc.frequency.exponentialRampToValueAtTime(30, ac.currentTime + 0.3);
-  gain.gain.setValueAtTime(0.2, ac.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
+  osc.type = "square";
+  osc.frequency.setValueAtTime(100, ac.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(30, ac.currentTime + 0.12);
+  gain.gain.setValueAtTime(0.12, ac.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.15);
   osc.connect(gain);
   gain.connect(ac.destination);
   osc.start();
-  osc.stop(ac.currentTime + 0.4);
-
-  playNoise(0.25, 0.15);
+  osc.stop(ac.currentTime + 0.2);
+  playNoise(0.08, 0.1);
 }
 
 export function playFreezeCollect(): void {
