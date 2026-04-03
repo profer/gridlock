@@ -64,4 +64,39 @@ export class Grid {
     }
     return count;
   }
+
+  canReachAnyPickup(from: Position): boolean {
+    if (this.getPickupCount() === 0) return true; // no pickups to reach, not stuck yet
+
+    const visited = Array.from({ length: GRID_SIZE }, () =>
+      Array(GRID_SIZE).fill(false)
+    );
+    const queue: Position[] = [from];
+    visited[from.row][from.col] = true;
+
+    const dirs = [
+      { col: 0, row: -1 },
+      { col: 0, row: 1 },
+      { col: -1, row: 0 },
+      { col: 1, row: 0 },
+    ];
+
+    while (queue.length > 0) {
+      const pos = queue.shift()!;
+
+      for (const d of dirs) {
+        const next: Position = { col: pos.col + d.col, row: pos.row + d.row };
+        if (!this.inBounds(next)) continue;
+        if (visited[next.row][next.col]) continue;
+        if (this.cells[next.row][next.col] === CellState.WALL) continue;
+
+        if (this.cells[next.row][next.col] === CellState.PICKUP) return true;
+
+        visited[next.row][next.col] = true;
+        queue.push(next);
+      }
+    }
+
+    return false;
+  }
 }

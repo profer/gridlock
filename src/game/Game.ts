@@ -93,8 +93,8 @@ export class Game {
       this.collectPickup(this.player.pos);
     }
 
-    // Check game over after move
-    if (!this.player.hasValidMove(this.grid)) {
+    // Check game over: no moves or no reachable pickups
+    if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyPickup(this.player.pos)) {
       this.triggerCrush();
     }
   }
@@ -204,8 +204,8 @@ export class Game {
         Sound.playWallSpawn();
       }
 
-      // Check game over after wall spawns
-      if (!this.player.hasValidMove(this.grid)) {
+      // Check game over after wall spawns: no moves or no reachable pickups
+      if (!this.player.hasValidMove(this.grid) || !this.grid.canReachAnyPickup(this.player.pos)) {
         this.triggerCrush();
       }
     }
