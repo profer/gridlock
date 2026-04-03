@@ -2,6 +2,7 @@ import { Game } from "./game/Game";
 import { GameState, Direction } from "./game/types";
 import { Renderer } from "./render/Renderer";
 import { InputHandler } from "./input/InputHandler";
+import { initAudio } from "./audio/SoundEngine";
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 const game = new Game();
@@ -14,6 +15,8 @@ function handleDirection(direction: Direction): void {
 }
 
 function handleTap(): void {
+  initAudio(); // Unlock audio context on first user interaction
+
   if (game.state === GameState.MENU) {
     game.start();
   } else if (game.state === GameState.GAME_OVER && game.gameOverTimer > 1.0) {
@@ -22,6 +25,15 @@ function handleTap(): void {
 }
 
 new InputHandler(handleDirection, handleTap);
+
+// Also init audio on first swipe
+let audioInitialized = false;
+window.addEventListener("touchstart", () => {
+  if (!audioInitialized) {
+    initAudio();
+    audioInitialized = true;
+  }
+}, { once: true });
 
 // Handle resize
 window.addEventListener("resize", () => renderer.resize());

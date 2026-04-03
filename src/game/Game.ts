@@ -2,8 +2,10 @@ import { Grid } from "./Grid";
 import { Player } from "./Player";
 import { Spawner } from "./Spawner";
 import { CellState, Direction, GameState, GRID_SIZE, Particle, Position } from "./types";
+import * as Sound from "../audio/SoundEngine";
 
 const COMBO_WINDOW = 1.5; // seconds to keep combo alive
+const CRUSH_DURATION = 1.8; // how long the crush animation takes
 
 export class Game {
   grid: Grid;
@@ -19,6 +21,9 @@ export class Game {
   wallAppearAnimations: Map<string, number>; // "col,row" -> animation progress 0-1
   gameOverTimer: number;
   totalTime: number;
+  crushTimer: number;
+  crushPhase: number; // 0-1 progress of crush animation
+  playerCrushScale: number; // player shrinks during crush
 
   constructor() {
     this.grid = new Grid();
@@ -34,6 +39,9 @@ export class Game {
     this.wallAppearAnimations = new Map();
     this.gameOverTimer = 0;
     this.totalTime = 0;
+    this.crushTimer = 0;
+    this.crushPhase = 0;
+    this.playerCrushScale = 1;
   }
 
   start(): void {
@@ -48,7 +56,12 @@ export class Game {
     this.wallAppearAnimations.clear();
     this.gameOverTimer = 0;
     this.totalTime = 0;
+    this.crushTimer = 0;
+    this.crushPhase = 0;
+    this.playerCrushScale = 1;
     this.state = GameState.PLAYING;
+
+    Sound.playGameStart();
 
     // Spawn initial pickups
     for (let i = 0; i < 3; i++) {
@@ -65,10 +78,14 @@ export class Game {
   handleInput(direction: Direction): void {
     if (this.state !== GameState.PLAYING) return;
 
-    const prevPos = { ...this.player.pos };
     const moved = this.player.move(direction, this.grid);
 
     if (!moved) return;
+
+    Sound.playMove();
+
+    // Haptic: light tap on move
+    this.vibrate(10);
 
     // Check if player landed on pickup
     const cell = this.grid.getCell(this.player.pos);
@@ -78,7 +95,7 @@ export class Game {
 
     // Check game over after move
     if (!this.player.hasValidMove(this.grid)) {
-      this.triggerGameOver(prevPos);
+      this.triggerCrush();
     }
   }
 
@@ -98,6 +115,12 @@ export class Game {
     const points = 10 * this.combo;
     this.score += points;
 
+    // Sound
+    Sound.playPickup(this.combo);
+    if (this.combo >= 3) {
+      Sound.playCombo(this.combo);
+    }
+
     // Spawn particles
     this.spawnPickupParticles(pos);
 
@@ -106,9 +129,13 @@ export class Game {
       this.clearRandomWall();
     }
 
-    // Haptic feedback
-    if (navigator.vibrate) {
-      navigator.vibrate(this.combo >= 3 ? [30, 20, 30] : 15);
+    // Haptic: satisfying buzz, stronger for combos
+    if (this.combo >= 3) {
+      this.vibrate([20, 15, 20, 15, 30]);
+    } else if (this.combo >= 2) {
+      this.vibrate([15, 10, 20]);
+    } else {
+      this.vibrate(15);
     }
   }
 
@@ -125,10 +152,23 @@ export class Game {
       const pos = walls[Math.floor(Math.random() * walls.length)];
       this.grid.setCell(pos, CellState.EMPTY);
       this.spawnWallClearParticles(pos);
+      Sound.playWallClear();
     }
   }
 
-  private triggerGameOver(_prevPos: Position): void {
+  private triggerCrush(): void {
+    this.state = GameState.CRUSHING;
+    this.crushTimer = 0;
+    this.crushPhase = 0;
+    this.playerCrushScale = 1;
+
+    Sound.playCrush();
+
+    // Heavy haptic
+    this.vibrate([40, 30, 60, 40, 100]);
+  }
+
+  private finishGameOver(): void {
     this.state = GameState.GAME_OVER;
     this.gameOverTimer = 0;
 
@@ -137,9 +177,10 @@ export class Game {
       this.saveHighScore(this.score);
     }
 
-    if (navigator.vibrate) {
-      navigator.vibrate([50, 30, 80]);
-    }
+    Sound.playGameOver();
+
+    // Final heavy haptic
+    this.vibrate([80, 50, 120]);
   }
 
   update(dt: number): void {
@@ -160,11 +201,90 @@ export class Game {
       // Animate new walls
       for (const pos of spawned.wallsSpawned) {
         this.wallAppearAnimations.set(`${pos.col},${pos.row}`, 0);
+        Sound.playWallSpawn();
       }
 
       // Check game over after wall spawns
       if (!this.player.hasValidMove(this.grid)) {
-        this.triggerGameOver(this.player.pos);
+        this.triggerCrush();
+      }
+    }
+
+    if (this.state === GameState.CRUSHING) {
+      this.crushTimer += dt;
+      this.crushPhase = Math.min(1, this.crushTimer / CRUSH_DURATION);
+
+      // Fill remaining empty cells with walls during crush
+      if (this.crushPhase < 0.7) {
+        const fillRate = dt * 8; // cells per second
+        const cellsToFill = Math.random() < fillRate ? 1 : 0;
+        for (let i = 0; i < cellsToFill; i++) {
+          const empty = this.grid.getEmptyCells().filter(
+            (p) => !(p.col === this.player.pos.col && p.row === this.player.pos.row)
+          );
+          if (empty.length > 0) {
+            // Pick the cell closest to the player for dramatic effect
+            empty.sort((a, b) => {
+              const distA = Math.abs(a.col - this.player.pos.col) + Math.abs(a.row - this.player.pos.row);
+              const distB = Math.abs(b.col - this.player.pos.col) + Math.abs(b.row - this.player.pos.row);
+              return distB - distA; // farthest first, then close in
+            });
+            const idx = Math.min(Math.floor(Math.random() * 3), empty.length - 1);
+            const pos = empty[idx];
+            this.grid.setCell(pos, CellState.WALL);
+            this.wallAppearAnimations.set(`${pos.col},${pos.row}`, 0);
+          }
+        }
+      }
+
+      // Player shrinks and shakes
+      if (this.crushPhase > 0.5) {
+        this.playerCrushScale = Math.max(0, 1 - (this.crushPhase - 0.5) * 2);
+      }
+
+      // Spawn crush particles around player
+      if (this.crushPhase > 0.3 && Math.random() < dt * 10) {
+        const angle = Math.random() * Math.PI * 2;
+        this.particles.push({
+          x: this.player.pos.col + 0.5 + Math.cos(angle) * 0.3,
+          y: this.player.pos.row + 0.5 + Math.sin(angle) * 0.3,
+          vx: Math.cos(angle) * (1 + Math.random() * 2),
+          vy: Math.sin(angle) * (1 + Math.random() * 2),
+          life: 0.3 + Math.random() * 0.3,
+          maxLife: 0.6,
+          color: "#00e5ff",
+          size: 0.06 + Math.random() * 0.04,
+        });
+      }
+
+      // Haptic pulses during crush
+      if (this.crushPhase > 0.3 && this.crushPhase < 0.9 && Math.random() < dt * 4) {
+        this.vibrate(20);
+      }
+
+      // Transition to game over
+      if (this.crushPhase >= 1) {
+        // Fill the player cell too
+        this.grid.setCell(this.player.pos, CellState.WALL);
+        this.wallAppearAnimations.set(`${this.player.pos.col},${this.player.pos.row}`, 0);
+
+        // Big burst of particles
+        for (let i = 0; i < 16; i++) {
+          const angle = (Math.PI * 2 * i) / 16;
+          const speed = 3 + Math.random() * 4;
+          this.particles.push({
+            x: this.player.pos.col + 0.5,
+            y: this.player.pos.row + 0.5,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 0.5 + Math.random() * 0.4,
+            maxLife: 0.9,
+            color: Math.random() > 0.5 ? "#00e5ff" : "#e94560",
+            size: 0.08 + Math.random() * 0.08,
+          });
+        }
+
+        this.finishGameOver();
       }
     }
 
@@ -231,6 +351,14 @@ export class Game {
         color: "#06d6a0",
         size: 0.1,
       });
+    }
+  }
+
+  private vibrate(pattern: number | number[]): void {
+    try {
+      navigator?.vibrate?.(pattern);
+    } catch {
+      // Vibration API not available
     }
   }
 

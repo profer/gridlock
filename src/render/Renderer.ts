@@ -10,6 +10,10 @@ export class Renderer {
   private offsetX: number = 0;
   private offsetY: number = 0;
   private time: number = 0;
+  private screenShakeX: number = 0;
+  private screenShakeY: number = 0;
+  private scorePopups: { value: number; x: number; y: number; timer: number }[] = [];
+  private lastScore: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -25,12 +29,11 @@ export class Renderer {
 
     const padding = 24;
     const availW = window.innerWidth - padding * 2;
-    const availH = window.innerHeight - padding * 2 - 80; // reserve space for UI
+    const availH = window.innerHeight - padding * 2 - 100; // more space for HUD
     this.cellSize = Math.floor(Math.min(availW, availH) / GRID_SIZE);
     const gridW = this.cellSize * GRID_SIZE;
-    const gridH = this.cellSize * GRID_SIZE;
     this.offsetX = Math.floor((window.innerWidth - gridW) / 2);
-    this.offsetY = Math.floor((window.innerHeight - gridH) / 2) + 20;
+    this.offsetY = Math.floor((window.innerHeight - gridW) / 2) + 30;
   }
 
   render(game: Game, dt: number): void {
@@ -38,6 +41,30 @@ export class Renderer {
     const ctx = this.ctx;
     const w = window.innerWidth;
     const h = window.innerHeight;
+
+    // Track score popups
+    if (game.score > this.lastScore && game.state === GameState.PLAYING) {
+      const diff = game.score - this.lastScore;
+      this.scorePopups.push({
+        value: diff,
+        x: this.offsetX + game.player.pos.col * this.cellSize + this.cellSize / 2,
+        y: this.offsetY + game.player.pos.row * this.cellSize,
+        timer: 0,
+      });
+    }
+    this.lastScore = game.score;
+
+    // Update score popups
+    for (let i = this.scorePopups.length - 1; i >= 0; i--) {
+      this.scorePopups[i].timer += dt;
+      this.scorePopups[i].y -= dt * 40;
+      if (this.scorePopups[i].timer > 0.8) {
+        this.scorePopups.splice(i, 1);
+      }
+    }
+
+    // Screen shake
+    this.updateScreenShake(game, dt);
 
     // Clear
     ctx.fillStyle = COLORS.background;
@@ -48,15 +75,49 @@ export class Renderer {
       return;
     }
 
+    // Apply screen shake offset
+    ctx.save();
+    ctx.translate(this.screenShakeX, this.screenShakeY);
+
     this.renderGrid(game);
     this.renderWalls(game);
     this.renderPickups(game);
-    this.renderPlayer(game);
+
+    if (game.state !== GameState.GAME_OVER || game.gameOverTimer < 0.1) {
+      this.renderPlayer(game);
+    }
+
     this.renderParticles(game);
+
+    ctx.restore();
+
+    // HUD renders without shake
     this.renderHUD(game, w);
+    this.renderScorePopups(ctx);
+
+    if (game.state === GameState.CRUSHING) {
+      this.renderCrushOverlay(game, w, h);
+    }
 
     if (game.state === GameState.GAME_OVER) {
       this.renderGameOver(game, w, h);
+    }
+  }
+
+  private updateScreenShake(game: Game, _dt: number): void {
+    if (game.state === GameState.CRUSHING) {
+      const intensity = game.crushPhase * 6;
+      this.screenShakeX = (Math.random() - 0.5) * intensity;
+      this.screenShakeY = (Math.random() - 0.5) * intensity;
+    } else if (game.state === GameState.GAME_OVER && game.gameOverTimer < 0.3) {
+      const intensity = (1 - game.gameOverTimer / 0.3) * 8;
+      this.screenShakeX = (Math.random() - 0.5) * intensity;
+      this.screenShakeY = (Math.random() - 0.5) * intensity;
+    } else {
+      this.screenShakeX *= 0.8;
+      this.screenShakeY *= 0.8;
+      if (Math.abs(this.screenShakeX) < 0.1) this.screenShakeX = 0;
+      if (Math.abs(this.screenShakeY) < 0.1) this.screenShakeY = 0;
     }
   }
 
@@ -113,10 +174,10 @@ export class Renderer {
 
     // Danger indicator: border glow when few cells remain
     const emptyCount = game.grid.getEmptyCells().length;
-    if (emptyCount < 15 && game.state === GameState.PLAYING) {
+    if (emptyCount < 15 && (game.state === GameState.PLAYING || game.state === GameState.CRUSHING)) {
       const intensity = (1 - emptyCount / 15) * pulse(this.time, 3, 0.3, 1.0);
-      ctx.strokeStyle = `rgba(233, 69, 96, ${intensity * 0.6})`;
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(233, 69, 96, ${intensity * 0.8})`;
+      ctx.lineWidth = 3 + intensity * 2;
       ctx.strokeRect(this.offsetX - 2, this.offsetY - 2, cs * GRID_SIZE + 4, cs * GRID_SIZE + 4);
     }
   }
@@ -201,6 +262,9 @@ export class Renderer {
   private renderPlayer(game: Game): void {
     const ctx = this.ctx;
     const cs = this.cellSize;
+    const scale = game.playerCrushScale;
+
+    if (scale <= 0) return;
 
     // Trail
     for (let i = game.player.trail.length - 1; i >= 0; i--) {
@@ -211,7 +275,7 @@ export class Renderer {
       const radius = cs * 0.15 * (1 - i / game.player.trail.length);
 
       ctx.fillStyle = COLORS.playerTrail;
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = alpha * scale;
       ctx.beginPath();
       ctx.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx.fill();
@@ -221,13 +285,24 @@ export class Renderer {
     // Player dot
     const px = this.offsetX + game.player.visualX * cs + cs / 2;
     const py = this.offsetY + game.player.visualY * cs + cs / 2;
-    const playerRadius = cs * 0.3;
+    const playerRadius = cs * 0.3 * scale;
+
+    // Crush: player turns red as they're being crushed
+    const crushTint = game.state === GameState.CRUSHING ? game.crushPhase : 0;
 
     // Outer glow
-    ctx.shadowColor = COLORS.playerGlow;
-    ctx.shadowBlur = 15 * pulse(this.time, 2, 0.6, 1.0);
+    const glowColor = crushTint > 0.3
+      ? `rgba(233, 69, 96, ${0.8 * scale})`
+      : COLORS.playerGlow;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 15 * pulse(this.time, crushTint > 0 ? 8 : 2, 0.6, 1.0) * scale;
 
-    ctx.fillStyle = COLORS.player;
+    // Interpolate player color toward red during crush
+    const r = Math.floor(0 + crushTint * 233);
+    const g = Math.floor(229 - crushTint * 160);
+    const b = Math.floor(255 - crushTint * 159);
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+
     ctx.beginPath();
     ctx.arc(px, py, playerRadius, 0, Math.PI * 2);
     ctx.fill();
@@ -236,7 +311,7 @@ export class Renderer {
 
     // Inner bright core
     ctx.fillStyle = "#ffffff";
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.6 * scale;
     ctx.beginPath();
     ctx.arc(px, py, playerRadius * 0.4, 0, Math.PI * 2);
     ctx.fill();
@@ -264,32 +339,95 @@ export class Renderer {
 
   private renderHUD(game: Game, w: number): void {
     const ctx = this.ctx;
+    const hudY = this.offsetY - 55;
 
-    // Score
-    ctx.fillStyle = COLORS.text;
-    ctx.font = "bold 28px -apple-system, BlinkMacSystemFont, sans-serif";
+    // Score background bar
+    ctx.fillStyle = "rgba(17, 17, 40, 0.8)";
+    const barX = this.offsetX - 8;
+    const barW = this.cellSize * GRID_SIZE + 16;
+    ctx.fillRect(barX, hudY - 4, barW, 42);
+
+    // Score label
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = "12px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(`${game.score}`, this.offsetX, this.offsetY - 45);
+    ctx.fillText("SCORE", this.offsetX, hudY);
+
+    // Score value
+    ctx.fillStyle = COLORS.text;
+    ctx.font = "bold 24px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText(`${game.score}`, this.offsetX, hudY + 14);
 
     // High score
     ctx.fillStyle = COLORS.textDim;
-    ctx.font = "14px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "12px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "right";
-    ctx.fillText(`Best: ${game.highScore}`, w - this.offsetX, this.offsetY - 40);
+    ctx.fillText("BEST", w - this.offsetX, hudY);
+    ctx.fillStyle = COLORS.text;
+    ctx.font = "bold 18px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText(`${game.highScore}`, w - this.offsetX, hudY + 14);
 
-    // Combo
+    // Combo indicator
     if (game.combo >= 2) {
       const comboAlpha = Math.min(1, game.comboTimer / 0.5);
-      ctx.fillStyle = COLORS.combo;
       ctx.globalAlpha = comboAlpha;
-      ctx.font = "bold 20px -apple-system, BlinkMacSystemFont, sans-serif";
+
+      // Combo bar below grid
+      const comboY = this.offsetY + GRID_SIZE * this.cellSize + 12;
+
+      ctx.fillStyle = COLORS.combo;
+      ctx.font = "bold 22px -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(
-        `x${game.combo} COMBO`,
-        w / 2,
-        this.offsetY + GRID_SIZE * this.cellSize + 20
-      );
+      ctx.textBaseline = "top";
+      ctx.fillText(`x${game.combo} COMBO`, w / 2, comboY);
+
+      // Combo timer bar
+      const timerWidth = (game.comboTimer / 1.5) * 100;
+      ctx.fillStyle = COLORS.combo;
+      ctx.globalAlpha = comboAlpha * 0.4;
+      ctx.fillRect(w / 2 - 50, comboY + 28, timerWidth, 3);
+
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  private renderScorePopups(ctx: CanvasRenderingContext2D): void {
+    for (const popup of this.scorePopups) {
+      const alpha = 1 - popup.timer / 0.8;
+      const scale = 0.8 + popup.timer * 0.5;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = COLORS.pickup;
+      ctx.font = `bold ${Math.floor(16 * scale)}px -apple-system, BlinkMacSystemFont, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(`+${popup.value}`, popup.x, popup.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  private renderCrushOverlay(game: Game, w: number, h: number): void {
+    const ctx = this.ctx;
+
+    // Red vignette that intensifies
+    const intensity = game.crushPhase;
+    if (intensity > 0.2) {
+      const gradient = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.7);
+      gradient.addColorStop(0, `rgba(233, 69, 96, 0)`);
+      gradient.addColorStop(1, `rgba(233, 69, 96, ${(intensity - 0.2) * 0.4})`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // "CRUSHING" flash text
+    if (intensity > 0.3 && intensity < 0.8) {
+      const textAlpha = Math.sin((intensity - 0.3) * 10) * 0.5 + 0.5;
+      ctx.fillStyle = COLORS.wall;
+      ctx.globalAlpha = textAlpha * 0.7;
+      ctx.font = "bold 28px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("CRUSHING...", w / 2, this.offsetY - 75);
       ctx.globalAlpha = 1;
     }
   }
@@ -298,7 +436,7 @@ export class Renderer {
     const ctx = this.ctx;
 
     // Darken overlay
-    const overlayAlpha = Math.min(0.7, game.gameOverTimer * 2);
+    const overlayAlpha = Math.min(0.75, game.gameOverTimer * 2);
     ctx.fillStyle = `rgba(10, 10, 26, ${overlayAlpha})`;
     ctx.fillRect(0, 0, w, h);
 
@@ -308,23 +446,33 @@ export class Renderer {
 
     ctx.globalAlpha = fadeIn;
 
-    // GRIDLOCKED text
+    // GRIDLOCKED text with glow
+    ctx.shadowColor = COLORS.wallGlow;
+    ctx.shadowBlur = 20;
     ctx.fillStyle = COLORS.wall;
     ctx.font = "bold 40px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("GRIDLOCKED!", w / 2, h / 2 - 50);
+    ctx.shadowBlur = 0;
 
     // Score
     ctx.fillStyle = COLORS.text;
     ctx.font = "bold 32px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillText(`Score: ${game.score}`, w / 2, h / 2 + 10);
+    ctx.fillText(`${game.score}`, w / 2, h / 2 + 10);
+
+    ctx.fillStyle = COLORS.textDim;
+    ctx.font = "16px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.fillText("points", w / 2, h / 2 + 40);
 
     // New high score
     if (game.score === game.highScore && game.score > 0) {
       ctx.fillStyle = COLORS.combo;
-      ctx.font = "18px -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("New Best!", w / 2, h / 2 + 50);
+      ctx.shadowColor = COLORS.combo;
+      ctx.shadowBlur = 10;
+      ctx.font = "bold 18px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.fillText("NEW BEST!", w / 2, h / 2 + 70);
+      ctx.shadowBlur = 0;
     }
 
     // Tap to restart
@@ -333,7 +481,7 @@ export class Renderer {
       ctx.fillStyle = COLORS.textDim;
       ctx.globalAlpha = fadeIn * tapAlpha;
       ctx.font = "20px -apple-system, BlinkMacSystemFont, sans-serif";
-      ctx.fillText("Tap to Restart", w / 2, h / 2 + 100);
+      ctx.fillText("Tap to Restart", w / 2, h / 2 + 120);
     }
 
     ctx.globalAlpha = 1;

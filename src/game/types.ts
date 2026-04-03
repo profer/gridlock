@@ -14,6 +14,7 @@ export enum Direction {
 export enum GameState {
   MENU = "menu",
   PLAYING = "playing",
+  CRUSHING = "crushing",
   GAME_OVER = "game_over",
 }
 
