@@ -53,6 +53,9 @@ function handleTap(): void {
 
   if (game.state === GameState.MENU) {
     game.start();
+  } else if (game.state === GameState.PLAYING) {
+    // Tap during gameplay activates bomb on mobile
+    game.useBomb();
   } else if (game.state === GameState.GAME_OVER && game.gameOverTimer > 1.0) {
     game.start();
   }
