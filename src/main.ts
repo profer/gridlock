@@ -20,14 +20,13 @@ function ensureMenuMusic(): void {
   }
 }
 
-// Attempt autoplay immediately — will succeed if browser policy allows
+// Attempt autoplay immediately
 try {
   ensureMenuMusic();
 } catch {
-  // Blocked by autoplay policy, will retry on first interaction
+  // Blocked by autoplay policy
 }
 
-// Fallback: start on any user interaction
 function onFirstInteraction(): void {
   ensureMenuMusic();
   window.removeEventListener("touchstart", onFirstInteraction);
@@ -38,10 +37,14 @@ window.addEventListener("touchstart", onFirstInteraction, { once: true });
 window.addEventListener("mousedown", onFirstInteraction, { once: true });
 window.addEventListener("keydown", onFirstInteraction, { once: true });
 
-function handleDirection(direction: Direction): void {
+function handleMove(direction: Direction, repeat: number): void {
   ensureMenuMusic();
   if (game.state === GameState.PLAYING) {
-    game.handleInput(direction);
+    for (let i = 0; i < repeat; i++) {
+      game.handleInput(direction);
+      // Stop if game ended during multi-move
+      if (game.state !== GameState.PLAYING) break;
+    }
   }
 }
 
@@ -50,14 +53,24 @@ function handleTap(): void {
 
   if (game.state === GameState.MENU) {
     game.start();
-  } else if (game.state === GameState.PLAYING) {
-    game.useBomb();
   } else if (game.state === GameState.GAME_OVER && game.gameOverTimer > 1.0) {
     game.start();
   }
 }
 
-new InputHandler(handleDirection, handleTap);
+function handleBomb(): void {
+  ensureMenuMusic();
+
+  if (game.state === GameState.PLAYING) {
+    game.useBomb();
+  } else if (game.state === GameState.MENU) {
+    game.start();
+  } else if (game.state === GameState.GAME_OVER && game.gameOverTimer > 1.0) {
+    game.start();
+  }
+}
+
+new InputHandler(handleMove, handleTap, handleBomb);
 
 window.addEventListener("resize", () => renderer.resize());
 
