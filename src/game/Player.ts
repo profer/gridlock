@@ -50,46 +50,29 @@ export class Player {
       return { moved: true, passedThrough: [], wallsSmashed: [] };
     }
 
-    // Speed mode: move up to 3 cells, smashing through walls
-    const passedThrough: Position[] = [];
-    const wallsSmashed: Position[] = [];
-    let finalPos = this.pos;
+    // Speed mode: move 1 cell but smash through walls
+    const next: Position = {
+      col: this.pos.col + delta.col,
+      row: this.pos.row + delta.row,
+    };
 
-    for (let step = 1; step <= 3; step++) {
-      const next: Position = {
-        col: this.pos.col + delta.col * step,
-        row: this.pos.row + delta.row * step,
-      };
-
-      if (!grid.inBounds(next)) break;
-
-      const cell = grid.getCell(next);
-
-      if (cell === CellState.WALL) {
-        // Smash through the wall — clear it and keep going
-        grid.setCell(next, CellState.EMPTY);
-        wallsSmashed.push(next);
-        finalPos = next;
-      } else {
-        // Empty, pickup, or power-up — pass through
-        passedThrough.push(next);
-        finalPos = next;
-      }
+    if (!grid.inBounds(next)) {
+      return { moved: false, passedThrough: [], wallsSmashed: [] };
     }
 
-    if (finalPos.col === this.pos.col && finalPos.row === this.pos.row) {
-      return { moved: false, passedThrough: [], wallsSmashed: [] };
+    const wallsSmashed: Position[] = [];
+    const cell = grid.getCell(next);
+
+    if (cell === CellState.WALL) {
+      grid.setCell(next, CellState.EMPTY);
+      wallsSmashed.push(next);
     }
 
     this.trail.unshift({ ...this.pos });
     if (this.trail.length > MAX_TRAIL) this.trail.pop();
 
-    // Remove the final landing position from passedThrough (it's handled separately as landing cell)
-    const intermediates = passedThrough.filter(
-      (p) => !(p.col === finalPos.col && p.row === finalPos.row)
-    );
-    this.pos = finalPos;
-    return { moved: true, passedThrough: intermediates, wallsSmashed };
+    this.pos = next;
+    return { moved: true, passedThrough: [], wallsSmashed };
   }
 
   hasValidMove(grid: Grid): boolean {

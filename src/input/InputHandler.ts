@@ -5,11 +5,12 @@ type TapCallback = () => void;
 type BombCallback = () => void;
 
 const SWIPE_THRESHOLD = 30;
-const SWIPE_CELL_SIZE = 50;
+const SWIPE_CELL_SIZE = 70;       // pixels per cell (normal)
+const SWIPE_CELL_SIZE_SPEED = 35; // pixels per cell (speed mode)
 
-// Custom key repeat timing (consistent across platforms)
-const REPEAT_DELAY = 180;  // ms before repeat starts
-const REPEAT_INTERVAL = 90; // ms between repeats
+const REPEAT_DELAY = 180;
+const REPEAT_INTERVAL = 90;
+const REPEAT_INTERVAL_SPEED = 50; // faster repeat during speed
 
 type DirectionKey = "up" | "down" | "left" | "right";
 
@@ -35,11 +36,12 @@ export class InputHandler {
   private touchStartY: number = 0;
   private touchStartTime: number = 0;
 
-  // Custom key repeat state
   private heldDirection: DirectionKey | null = null;
   private heldKeys: Set<string> = new Set();
   private repeatTimer: number | null = null;
   private isRepeating: boolean = false;
+
+  speedActive: boolean = false; // set externally by game loop
 
   constructor(onMove: MoveCallback, onTap: TapCallback, onBomb: BombCallback) {
     this.onMove = onMove;
@@ -78,8 +80,9 @@ export class InputHandler {
       return;
     }
 
+    const cellSize = this.speedActive ? SWIPE_CELL_SIZE_SPEED : SWIPE_CELL_SIZE;
     const dominantDist = Math.max(Math.abs(dx), Math.abs(dy));
-    const repeat = Math.min(3, Math.max(1, Math.round(dominantDist / SWIPE_CELL_SIZE)));
+    const repeat = Math.min(4, Math.max(1, Math.round(dominantDist / cellSize)));
 
     if (Math.abs(dx) > Math.abs(dy)) {
       this.onMove(dx > 0 ? Direction.RIGHT : Direction.LEFT, repeat);
@@ -93,21 +96,18 @@ export class InputHandler {
 
     if (dir) {
       e.preventDefault();
-      // Ignore platform repeat — we handle our own
       if (e.repeat) return;
 
       this.heldKeys.add(e.key);
-
-      // Fire immediately on first press
       this.onMove(DIR_MAP[dir], 1);
-
-      // Start custom repeat for this direction
       this.startRepeat(dir);
       return;
     }
 
     switch (e.key) {
       case " ":
+      case "b":
+      case "B":
         e.preventDefault();
         if (!e.repeat) {
           this.onBomb();
@@ -127,7 +127,6 @@ export class InputHandler {
 
     const dir = KEY_TO_DIRECTION[e.key];
     if (dir && dir === this.heldDirection) {
-      // Check if another direction key is still held
       const stillHeld = this.findHeldDirection();
       if (stillHeld) {
         this.startRepeat(stillHeld);
@@ -138,7 +137,6 @@ export class InputHandler {
   }
 
   private handleBlur(): void {
-    // Clear all state when window loses focus
     this.heldKeys.clear();
     this.stopRepeat();
   }
@@ -156,7 +154,6 @@ export class InputHandler {
     this.heldDirection = dir;
     this.isRepeating = false;
 
-    // Initial delay before repeat starts
     this.repeatTimer = window.setTimeout(() => {
       this.isRepeating = true;
       this.fireRepeat();
@@ -168,9 +165,10 @@ export class InputHandler {
 
     this.onMove(DIR_MAP[this.heldDirection], 1);
 
+    const interval = this.speedActive ? REPEAT_INTERVAL_SPEED : REPEAT_INTERVAL;
     this.repeatTimer = window.setTimeout(() => {
       this.fireRepeat();
-    }, REPEAT_INTERVAL);
+    }, interval);
   }
 
   private stopRepeat(): void {

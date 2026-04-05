@@ -70,7 +70,7 @@ function handleBomb(): void {
   }
 }
 
-new InputHandler(handleMove, handleTap, handleBomb);
+const input = new InputHandler(handleMove, handleTap, handleBomb);
 
 window.addEventListener("resize", () => renderer.resize());
 
@@ -79,6 +79,9 @@ let lastTime = 0;
 function loop(timestamp: number): void {
   const dt = Math.min((timestamp - lastTime) / 1000, 0.1);
   lastTime = timestamp;
+
+  // Sync speed state to input handler for adaptive swipe/repeat
+  input.speedActive = game.speedTimer > 0;
 
   game.update(dt);
   renderer.render(game, dt);
